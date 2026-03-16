@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>Sliding Puzzle</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      font-family: Arial, sans-serif;
+      color: white;
+    }
+    h1 { margin-bottom: 10px; color: #e94560; letter-spacing: 2px; }
+    #info { display: flex; gap: 40px; margin-bottom: 16px; font-size: 18px; }
+    canvas { border-radius: 12px; cursor: pointer; }
+    #message { margin-top: 16px; font-size: 22px; color: #f5a623; height: 30px; }
+    button {
+      margin-top: 12px; padding: 10px 32px; font-size: 16px;
+      background: #e94560; color: white; border: none;
+      border-radius: 8px; cursor: pointer; transition: background 0.2s;
+    }
+    button:hover { background: #c73652; }
+  </style>
+</head>
+<body>
+
+<h1>🧩 Sliding Puzzle</h1>
+<div id="info">
+  <span>เวลา: <strong id="timer">0</strong> วิ</span>
+  <span>ขยับ: <strong id="moves">0</strong> ครั้ง</span>
+</div>
+<canvas id="gameCanvas" width="360" height="360"></canvas>
+<div id="message"></div>
+<button onclick="shuffle()">สับใหม่</button>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const SIZE = 3;
+const TILE = 110;
+const GAP = 6;
+const OFFSET = 12;
+
+let board = [];
+let moves = 0, seconds = 0;
+let timerInterval = null;
+let solved = false;
+let hoverIndex = -1;  // ช่องที่เมาส์ชี้อยู่
+
+// แอนิเมชัน
+let anim = null; // { fromIndex, toIndex, progress }
+
+const GOAL = [1,2,3,4,5,6,7,8,0];
+
+// -- ฟังก์ชันหลัก --
+
+function initBoard() { board = [1,2,3,4,5,6,7,8,0]; }
+
+function shuffle() {
+  solved = false; moves = 0; seconds = 0; anim = null; hoverIndex = -1;
+  document.getElementById('moves').textContent = 0;
+  document.getElementById('timer').textContent = 0;
+  document.getElementById('message').textContent = '';
+  clearInterval(timerInterval);
+  initBoard();
+  for (let i = 0; i < 200; i++) {
+    const n = getMovable();
+    moveTile(n[Math.floor(Math.random() * n.length)], false);
+  }
+  timerInterval = setInterval(() => {
+    seconds++;
+    document.getElementById('timer').textContent = seconds;
+  }, 1000);
+  draw();
+}
+
+function getMovable() {
+  const empty = board.indexOf(0);
+  const row = Math.floor(empty / SIZE), col = empty % SIZE;
+  const m = [];
+  if (row > 0)      m.push(empty - SIZE);
+  if (row < SIZE-1) m.push(empty + SIZE);
+  if (col > 0)      m.push(empty - 1);
+  if (col < SIZE-1) m.push(empty + 1);
+  return m;
+}
+
+function moveTile(index, checkWin = true) {
+  const empty = board.indexOf(0);
+  board[empty] = board[index];
+  board[index] = 0;
+  if (checkWin) {
+    moves++;
+    document.getElementById('moves').textContent = moves;
+    checkSolved();
+  }
+}
+
+function checkSolved() {
+  if (board.join(',') === GOAL.join(',')) {
+    solved = true;
+    clearInterval(timerInterval);
+    document.getElementById('message').textContent =
+      '🎉 สำเร็จ! ' + moves + ' ครั้ง ใน ' + seconds + ' วินาที';
+    draw();
+  }
+}
+
+// -- ตำแหน่งบนหน้าจอ --
+
+function tilePos(i) {
+  return {
+    x: OFFSET + (i % SIZE) * (TILE + GAP),
+    y: OFFSET + Math.floor(i / SIZE) * (TILE + GAP)
+  };
+}
+
+// -- วาด --
+
+function drawTile(val, px, py, highlight, winColor) {
+  // เงา
+  ctx.shadowColor = 'rgba(0,0,0,0.4)';
+  ctx.shadowBlur = highlight ? 18 : 8;
+  ctx.shadowOffsetY = highlight ? 6 : 3;
+
+  // พื้นกระเบื้อง
+  ctx.fillStyle = winColor  ? '#2ecc71' :
+                  highlight ? '#7f77dd' : '#533ab7';
+  ctx.beginPath();
+  ctx.roundRect(px, py, TILE, TILE, 10);
+  ctx.fill();
+
+  // ขอบ
+  ctx.shadowColor = 'transparent';
+  ctx.strokeStyle = winColor  ? '#27ae60' :
+                    highlight ? '#afa9ec' : '#7f77dd';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(px, py, TILE, TILE, 10);
+  ctx.stroke();
+
+  // ตัวเลข
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 36px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(val, px + TILE/2, py + TILE/2);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // พื้นหลัง canvas
+  ctx.fillStyle = '#16213e';
+  ctx.beginPath();
+  ctx.roundRect(0, 0, canvas.width, canvas.height, 12);
+  ctx.fill();
+
+  const empty = board.indexOf(0);
+  const movable = getMovable();
+
+  for (let i = 0; i < SIZE * SIZE; i++) {
+    const val = board[i];
+    if (val === 0) continue; // ช่องว่าง ไม่วาด
+
+    // ถ้ากำลัง animate กระเบื้องนี้อยู่
+    if (anim && i === anim.toIndex) {
+      const from = tilePos(anim.fromIndex);
+      const to   = tilePos(anim.toIndex);
+      const t    = anim.progress;
+      // easing: ease-out
+      const ease = 1 - Math.pow(1 - t, 3);
+      const px = from.x + (to.x - from.x) * ease;
+      const py = from.y + (to.y - from.y) * ease;
+      drawTile(val, px, py, false, solved);
+      continue;
+    }
+
+    const pos = tilePos(i);
+    const isMovable = movable.includes(i);
+    const isHover   = i === hoverIndex && isMovable;
+    drawTile(val, pos.x, pos.y, isHover, solved);
+  }
+
+  // ช่องว่าง — วาดเป็นรอยเว้า
+  const ep = tilePos(empty);
+  ctx.fillStyle = '#0f1c3a';
+  ctx.beginPath();
+  ctx.roundRect(ep.x, ep.y, TILE, TILE, 10);
+  ctx.fill();
+  ctx.strokeStyle = '#1a2d5a';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(ep.x, ep.y, TILE, TILE, 10);
+  ctx.stroke();
+}
+
+// -- แอนิเมชัน --
+
+function animateMove(fromIndex, toIndex, onDone) {
+  const start = performance.now();
+  const duration = 120; // ms
+
+  function step(now) {
+    const t = Math.min((now - start) / duration, 1);
+    anim = { fromIndex, toIndex, progress: t };
+    draw();
+    if (t < 1) {
+      requestAnimationFrame(step);
+    } else {
+      anim = null;
+      onDone();
+      draw();
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+// -- คลิก --
+
+canvas.addEventListener('click', (e) => {
+  if (solved || anim) return;
+  const rect = canvas.getBoundingClientRect();
+  const col = Math.floor((e.clientX - rect.left  - OFFSET) / (TILE + GAP));
+  const row = Math.floor((e.clientY - rect.top   - OFFSET) / (TILE + GAP));
+  if (col < 0 || col >= SIZE || row < 0 || row >= SIZE) return;
+
+  const index = row * SIZE + col;
+  const empty = board.indexOf(0);
+  if (!getMovable().includes(index)) return;
+
+  // animate แล้วค่อย moveTile
+  animateMove(index, empty, () => moveTile(index));
+});
+
+// -- hover ไฮไลต์ --
+
+canvas.addEventListener('mousemove', (e) => {
+  if (solved || anim) return;
+  const rect = canvas.getBoundingClientRect();
+  const col = Math.floor((e.clientX - rect.left  - OFFSET) / (TILE + GAP));
+  const row = Math.floor((e.clientY - rect.top   - OFFSET) / (TILE + GAP));
+  const index = (row >= 0 && row < SIZE && col >= 0 && col < SIZE)
+    ? row * SIZE + col : -1;
+  const newHover = getMovable().includes(index) ? index : -1;
+  if (newHover !== hoverIndex) { hoverIndex = newHover; draw(); }
+});
+
+canvas.addEventListener('mouseleave', () => { hoverIndex = -1; draw(); });
+
+// -- เริ่มต้น --
+initBoard();
+shuffle();
+</script>
+</body>
+</html>
